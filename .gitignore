@@ -1,0 +1,38 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# env
+.env
+.env.*
+!.env.example
+!.env.staging.example
+!.env.production.example
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+.vercel/
+coverage/
+tmp/
+temp/
+uploads/local/
+backups/
+*.db
+*.sqlite
+*.sqlite3
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
