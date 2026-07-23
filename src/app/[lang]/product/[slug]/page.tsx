@@ -20,7 +20,7 @@ import RecordRecentlyViewed from '@/components/RecordRecentlyViewed';
 import ProductCard from '@/components/ProductCard';
 import PerformanceBar from '@/components/PerformanceBar';
 import { ProductViewTracker, RecommendationImpressionTracker } from '@/components/AnalyticsTracker';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { formatPrice } from '@/utils/format-price';
 import { localized } from '@/utils/localized';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
@@ -35,7 +35,9 @@ export async function generateStaticParams() {
   return [];
 }
 
-export async function generateMetadata({ params }: { params: { slug: string; lang: Locale } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string; lang: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const perfume = await prisma.perfume.findFirst({
     where: { slug: params.slug, status: 'PUBLISHED', availability: { not: 'HIDDEN' } },
     include: { media: { orderBy: { isPrimary: 'desc' }, take: 1 } },
@@ -59,7 +61,9 @@ export async function generateMetadata({ params }: { params: { slug: string; lan
   });
 }
 
-export default async function ProductPage({ params }: { params: { slug: string; lang: Locale } }) {
+export default async function ProductPage(props: { params: Promise<{ slug: string; lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const lang = params.lang;
 

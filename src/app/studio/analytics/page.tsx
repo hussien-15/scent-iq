@@ -106,11 +106,12 @@ const priorityStyle: Record<BusinessInsight['priority'], string> = {
   LOW: 'border-white/10 bg-white/[0.02] text-smoke',
 };
 
-export default async function StudioAnalyticsPage({
-  searchParams,
-}: {
-  searchParams: { range?: string; from?: string; to?: string };
-}) {
+export default async function StudioAnalyticsPage(
+  props: {
+    searchParams: Promise<{ range?: string; from?: string; to?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const range = resolveAnalyticsRange(searchParams);
   const data = await getBusinessAnalytics(range);
   const topProduct = data.productPerformance[0];

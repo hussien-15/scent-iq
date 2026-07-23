@@ -1,2 +1,5 @@
 import { redirect } from 'next/navigation';
-export default function AdminAliasPage({ params }: { params: { path: string[] } }) { redirect(`/studio/${params.path.join('/')}`); }
+export default async function AdminAliasPage(props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
+  redirect(`/studio/${params.path.join('/')}`);
+}

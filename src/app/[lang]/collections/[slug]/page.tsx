@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import Breadcrumb from '@/components/Breadcrumb';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
@@ -57,13 +57,15 @@ const findPublicCollection = cache(async (slug: string) => {
   });
 });
 
-export async function generateMetadata({
-  params,
-  searchParams,
-}: {
-  params: { slug: string; lang: Locale };
-  searchParams: CollectionFilters;
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<{ slug: string; lang: string }>;
+    searchParams: Promise<CollectionFilters>;
+  }
+): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const collection = await findPublicCollection(params.slug);
   if (!collection) return {};
 
@@ -114,13 +116,15 @@ function toCardProduct(product: Awaited<ReturnType<typeof getCollectionProducts>
   };
 }
 
-export default async function CollectionPage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string; lang: Locale };
-  searchParams: CollectionFilters;
-}) {
+export default async function CollectionPage(
+  props: {
+    params: Promise<{ slug: string; lang: string }>;
+    searchParams: Promise<CollectionFilters>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const collection = await findPublicCollection(params.slug);
   if (!collection) notFound();
 

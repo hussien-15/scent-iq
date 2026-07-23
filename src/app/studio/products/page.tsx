@@ -11,7 +11,8 @@ import { formatPrice } from '@/utils/format-price';
 
 export const dynamic = 'force-dynamic';
 
-export default async function StudioProductsPage({ searchParams }: { searchParams: { q?: string; page?: string } }) {
+export default async function StudioProductsPage(props: { searchParams: Promise<{ q?: string; page?: string }> }) {
+  const searchParams = await props.searchParams;
   const { q } = searchParams;
   const pageSize = 25;
   const requestedPage = Math.max(1, Number.parseInt(searchParams.page ?? '1', 10) || 1);

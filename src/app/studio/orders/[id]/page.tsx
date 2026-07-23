@@ -8,7 +8,8 @@ import ReviewRequestControl from '@/components/studio/ReviewRequestControl';
 
 export const dynamic = 'force-dynamic';
 
-export default async function StudioOrderDetailPage({ params }: { params: { id: string } }) {
+export default async function StudioOrderDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const order = await prisma.order.findUnique({
     where: { id: params.id },
     include: {

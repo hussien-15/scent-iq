@@ -21,11 +21,12 @@ function orderDate(date: Date) {
   }).format(date);
 }
 
-export default async function StudioOrdersPage({
-  searchParams,
-}: {
-  searchParams: { q?: string; status?: string; page?: string };
-}) {
+export default async function StudioOrdersPage(
+  props: {
+    searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const status = ORDER_STATUSES.includes(searchParams.status as (typeof ORDER_STATUSES)[number])
     ? (searchParams.status as (typeof ORDER_STATUSES)[number])
     : undefined;

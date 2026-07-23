@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import Breadcrumb from '@/components/Breadcrumb';
 import ProductCard from '@/components/ProductCard';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
 import { tagLabel } from '@/lib/tag-labels';
@@ -13,7 +13,12 @@ export const revalidate = 900;
 export const dynamicParams = true;
 export async function generateStaticParams() { return []; }
 
-export async function generateMetadata({ params, searchParams }: { params: { lang: Locale; slug: string }; searchParams: { gender?: string; season?: string } }): Promise<Metadata> {
+export async function generateMetadata(
+  props: { params: Promise<{ lang: string; slug: string }>; searchParams: Promise<{ gender?: string; season?: string }> }
+): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const category = await prisma.category.findUnique({ where: { slug: params.slug } });
   if (!category) return {};
   const ar = params.lang === 'ar';
@@ -25,7 +30,12 @@ export async function generateMetadata({ params, searchParams }: { params: { lan
   });
 }
 
-export default async function CategoryPage({ params, searchParams }: { params: { lang: Locale; slug: string }; searchParams: { gender?: string; season?: string } }) {
+export default async function CategoryPage(
+  props: { params: Promise<{ lang: string; slug: string }>; searchParams: Promise<{ gender?: string; season?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const category = await prisma.category.findUnique({ where: { slug: params.slug }, include: { faqs: { orderBy: { position: 'asc' } } } });
   if (!category) notFound();
   const validGender = ['MASCULINE', 'FEMININE', 'UNISEX'].includes(searchParams.gender ?? '') ? searchParams.gender as 'MASCULINE' | 'FEMININE' | 'UNISEX' : undefined;

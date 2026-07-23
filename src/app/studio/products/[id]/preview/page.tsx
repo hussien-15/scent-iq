@@ -8,7 +8,8 @@ import { getCompletionScore } from '@/services/product-completion.service';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ProductPreviewPage({ params }: { params: { id: string } }) {
+export default async function ProductPreviewPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const product = await prisma.perfume.findUnique({
     where: { id: params.id },
     include: {

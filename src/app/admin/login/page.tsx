@@ -1,7 +1,10 @@
 import { ShieldCheck } from 'lucide-react';
 import AdminLoginForm from './AdminLoginForm';
 
-export default function AdminLoginPage({ searchParams }: { searchParams: { callbackUrl?: string; reason?: string } }) {
+export default async function AdminLoginPage(
+  props: { searchParams: Promise<{ callbackUrl?: string; reason?: string }> }
+) {
+  const searchParams = await props.searchParams;
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-12">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(200,154,62,0.18),transparent_38%),linear-gradient(145deg,#15120d,#070707_60%)]" />

@@ -5,7 +5,8 @@ import { getCompletionScore } from '@/services/product-completion.service';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditProductPage({ params }: { params: { id: string } }) {
+export default async function EditProductPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const [product, brands, categories, notes, tags, media] = await Promise.all([
     prisma.perfume.findUnique({
       where: { id: params.id },

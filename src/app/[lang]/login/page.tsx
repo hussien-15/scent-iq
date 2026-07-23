@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, use } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { signIn } from 'next-auth/react';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -14,7 +14,9 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-export default function LoginPage({ params }: { params: { lang: Locale } }) {
+export default function LoginPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = use(props.params);
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const [authError, setAuthError] = useState('');
 

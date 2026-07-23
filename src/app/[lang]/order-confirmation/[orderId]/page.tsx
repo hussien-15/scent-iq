@@ -3,20 +3,22 @@ import Link from 'next/link';
 import { CheckCircle2, Home, ShoppingBag } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { formatPrice } from '@/utils/format-price';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { verifyOrderConfirmationToken } from '@/lib/security';
 import { localized } from '@/utils/localized';
 import { buttonStyles } from '@/components/ui/Button';
 
 export const dynamic = 'force-dynamic';
 
-export default async function OrderConfirmationPage({
-  params,
-  searchParams,
-}: {
-  params: { lang: Locale; orderId: string };
-  searchParams: { token?: string };
-}) {
+export default async function OrderConfirmationPage(
+  props: {
+    params: Promise<{ lang: string; orderId: string }>;
+    searchParams: Promise<{ token?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
 
   if (!searchParams.token || !verifyOrderConfirmationToken(params.orderId, searchParams.token)) notFound();

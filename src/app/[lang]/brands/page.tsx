@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import type { BrandSummary } from '@/types';
 import { absoluteUrl, buildMetadata, serializeJsonLd } from '@/utils/seo';
@@ -10,7 +10,9 @@ import { Tags } from 'lucide-react';
 
 export const revalidate = 900;
 
-export async function generateMetadata({ params }: { params: { lang: Locale } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const ar = params.lang === 'ar';
   return buildMetadata({
     title: ar ? 'علامات العطور المختارة في العراق' : 'Selected perfume brands in Iraq',
@@ -23,7 +25,9 @@ export async function generateMetadata({ params }: { params: { lang: Locale } })
   });
 }
 
-export default async function BrandsPage({ params }: { params: { lang: Locale } }) {
+export default async function BrandsPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
 
   const brands = await prisma.brand.findMany({

@@ -7,6 +7,10 @@ export const defaultLocale: Locale = 'ar';
 
 const dictionaries = { ar, en };
 
+export function resolveLocale(locale: string): Locale {
+  return locales.includes(locale as Locale) ? (locale as Locale) : defaultLocale;
+}
+
 export function getDictionary(locale: Locale) {
   return dictionaries[locale] ?? dictionaries[defaultLocale];
 }

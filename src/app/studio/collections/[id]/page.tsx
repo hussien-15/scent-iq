@@ -5,7 +5,8 @@ import { parseCollectionRules } from '@/services/collection.service';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditCollectionPage({ params }: { params: { id: string } }) {
+export default async function EditCollectionPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const [collection, products, brands, notes, collections] = await Promise.all([
     prisma.collection.findUnique({
       where: { id: params.id },

@@ -9,11 +9,12 @@ export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 20;
 
-export default async function StudioInventoryPage({
-  searchParams,
-}: {
-  searchParams: { q?: string; status?: string; brand?: string; category?: string; minPrice?: string; maxPrice?: string; minStock?: string; maxStock?: string; page?: string };
-}) {
+export default async function StudioInventoryPage(
+  props: {
+    searchParams: Promise<{ q?: string; status?: string; brand?: string; category?: string; minPrice?: string; maxPrice?: string; minStock?: string; maxStock?: string; page?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const page = Math.max(1, Number(searchParams.page) || 1);
   const validStatuses = ['IN_STOCK', 'LOW_STOCK', 'OUT_OF_STOCK', 'RESERVED', 'HIDDEN', 'DISCONTINUED'];
   const where: Prisma.PerfumeWhereInput = {

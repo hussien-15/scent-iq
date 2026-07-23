@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import Breadcrumb from '@/components/Breadcrumb';
-import { type Locale } from '@/lib/i18n';
+import { resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
 
@@ -12,7 +12,9 @@ export const revalidate = 1800;
 export const dynamicParams = true;
 export async function generateStaticParams() { return []; }
 
-export async function generateMetadata({ params }: { params: { lang: Locale; slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const article = await prisma.editorialArticle.findFirst({ where: { slug: params.slug, status: 'PUBLISHED' } });
   if (!article) return {};
   return buildMetadata({
@@ -22,7 +24,9 @@ export async function generateMetadata({ params }: { params: { lang: Locale; slu
   });
 }
 
-export default async function EditorialGuidePage({ params }: { params: { lang: Locale; slug: string } }) {
+export default async function EditorialGuidePage(props: { params: Promise<{ lang: string; slug: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const article = await prisma.editorialArticle.findFirst({
     where: { slug: params.slug, status: 'PUBLISHED' },
     include: { faqs: { orderBy: { position: 'asc' } } },

@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { StorefrontPageTracker } from '@/components/AnalyticsTracker';
-import { getDictionary, dir, type Locale } from '@/lib/i18n';
+import { getDictionary, dir, resolveLocale } from '@/lib/i18n';
 import { absoluteUrl, getSiteUrl, serializeJsonLd } from '@/utils/seo';
 import { getMaintenanceState } from '@/services/maintenance.service';
 import MaintenanceBanner from '@/components/MaintenanceBanner';
@@ -22,7 +22,9 @@ export const viewport: Viewport = {
   colorScheme: 'dark',
 };
 
-export async function generateMetadata({ params }: { params: { lang: Locale } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   return {
     metadataBase: new URL(getSiteUrl()),
@@ -33,13 +35,19 @@ export async function generateMetadata({ params }: { params: { lang: Locale } })
   };
 }
 
-export default async function LangLayout({
-  children,
-  params,
-}: {
-  children: React.ReactNode;
-  params: { lang: Locale };
-}) {
+export default async function LangLayout(
+  props: {
+    children: React.ReactNode;
+    params: Promise<{ lang: string }>;
+  }
+) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
+
+  const {
+    children
+  } = props;
+
   const dict = getDictionary(params.lang);
   const [maintenance, launchSetting] = await Promise.all([
     getMaintenanceState(),

@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import Breadcrumb from '@/components/Breadcrumb';
 import ProductCard from '@/components/ProductCard';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
 
@@ -12,7 +12,9 @@ export const revalidate = 900;
 export const dynamicParams = true;
 export async function generateStaticParams() { return []; }
 
-export async function generateMetadata({ params }: { params: { lang: Locale; slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const note = await prisma.note.findUnique({ where: { slug: params.slug } });
   if (!note) return {};
   const ar = params.lang === 'ar';
@@ -20,11 +22,13 @@ export async function generateMetadata({ params }: { params: { lang: Locale; slu
   return buildMetadata({ title: (ar ? note.metaTitleAr : note.metaTitleEn) ?? (ar ? `عطور ${name} المتوفرة في العراق` : `${name} Perfumes in Iraq`), description: (ar ? note.metaDescriptionAr : note.metaDescriptionEn) ?? localized(params.lang, note.descriptionEn ?? `Explore perfumes featuring ${note.nameEn}.`, note.descriptionAr ?? `اكتشف العطور التي تحتوي على نوتة ${note.nameAr} وقارن الروائح والاستخدامات قبل الاختيار.`), path: `/notes/${note.slug}`, locale: params.lang, image: note.ogImage ?? undefined, keywords: note.keywords });
 }
 
-export default async function NotePage({ params }: { params: { lang: Locale; slug: string } }) {
+export default async function NotePage(props: { params: Promise<{ lang: string; slug: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const note = await prisma.note.findUnique({ where: { slug: params.slug }, include: { faqs: { orderBy: { position: 'asc' } }, perfumeNotes: { where: { perfume: { status: 'PUBLISHED', availability: { not: 'HIDDEN' } } }, include: { perfume: { include: { brand: { select: { name: true, nameAr: true } } } } } } } });
   if (!note) notFound();
   const relatedNotes = await prisma.note.findMany({ where: { id: { not: note.id }, category: note.category, perfumeNotes: { some: { perfume: { status: 'PUBLISHED' } } } }, take: 8, orderBy: { nameAr: 'asc' } });
-  const dict = getDictionary(params.lang); const name = localized(params.lang, note.nameEn, note.nameAr);
+  const dict = getDictionary(params.lang);const name = localized(params.lang, note.nameEn, note.nameAr);
   const description = localized(params.lang, note.descriptionEn ?? `Perfumes where ${note.nameEn} is part of the scent profile.`, note.descriptionAr ?? `مجموعة عطور تدخل فيها نوتة ${note.nameAr} ضمن التكوين العطري، مع خيارات مختلفة للمواسم والمناسبات.`);
   const perfumes = note.perfumeNotes.map((entry) => entry.perfume);
   const faqs = note.faqs.map((faq) => ({ question: localized(params.lang, faq.questionEn ?? faq.questionAr, faq.questionAr), answer: localized(params.lang, faq.answerEn ?? faq.answerAr, faq.answerAr) }));
