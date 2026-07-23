@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink font-body text-parchment;
+    min-width: 320px;
+    font-family: Inter, "Noto Sans Arabic", Tahoma, Arial, system-ui, -apple-system, sans-serif;
+    text-rendering: optimizeLegibility;
+    line-height: 1.6;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    @apply bg-gold/30 text-parchment;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.gold.bright');
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .luxury-card {
+    @apply rounded-2xl border border-ink-line bg-ink-soft/60 shadow-[0_18px_60px_rgba(0,0,0,0.16)];
+  }
+
+  .field-control {
+    @apply min-h-11 w-full rounded-lg border border-ink-line bg-ink px-3 py-2.5 text-sm text-parchment placeholder:text-smoke/60 transition-colors focus:border-gold/55 focus:outline-none;
+  }
+
+  .skeleton-shimmer {
+    @apply relative overflow-hidden bg-white/[0.06];
+  }
+
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent);
+    animation: scentiq-shimmer 1.6s infinite;
+  }
+}
+
+@layer utilities {
+  .eyebrow {
+    @apply font-body text-xs uppercase tracking-widest2 text-smoke;
+  }
+
+  .hairline {
+    @apply border border-ink-line;
+  }
+
+  .content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 720px;
+  }
+
+  .scrollbar-subtle {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.ink.line') transparent;
+  }
+}
+
+@keyframes scentiq-fade {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scentiq-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@keyframes scentiq-toast {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.toast-enter { animation: scentiq-toast .22s ease-out both; }
+.filter-sheet-enter { animation: scentiq-sheet .22s ease-out both; }
+
+@keyframes scentiq-sheet {
+  from { transform: translateY(24px); opacity: .7; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .product-card-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

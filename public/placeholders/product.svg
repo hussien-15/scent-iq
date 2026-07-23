@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-labelledby="title desc">
+  <title id="title">ScentIQ product placeholder</title><desc id="desc">Development placeholder to replace with approved product photography.</desc>
+  <defs><radialGradient id="bg"><stop stop-color="#292116"/><stop offset="1" stop-color="#0a0a09"/></radialGradient><linearGradient id="gold" x2="1" y2="1"><stop stop-color="#f2d690"/><stop offset=".5" stop-color="#c89a3e"/><stop offset="1" stop-color="#76551d"/></linearGradient></defs>
+  <rect width="800" height="1000" fill="url(#bg)"/><circle cx="400" cy="460" r="270" fill="none" stroke="#c89a3e" stroke-opacity=".12"/>
+  <rect x="305" y="190" width="190" height="80" rx="18" fill="#111" stroke="url(#gold)" stroke-width="5"/><rect x="245" y="255" width="310" height="470" rx="85" fill="#0d0d0c" stroke="url(#gold)" stroke-width="10"/>
+  <path d="M400 360c-48 73-72 116-72 160 0 48 32 89 72 89s72-41 72-89c0-44-24-87-72-160z" fill="url(#gold)" opacity=".9"/>
+  <text x="400" y="825" fill="#f4ecdb" font-family="Georgia,serif" font-size="54" text-anchor="middle" letter-spacing="7">SCENTIQ</text><text x="400" y="875" fill="#b6aa94" font-family="Arial,sans-serif" font-size="18" text-anchor="middle" letter-spacing="3">DEVELOPMENT PLACEHOLDER</text>
+</svg>

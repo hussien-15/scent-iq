@@ -1,0 +1,72 @@
+name: ScentIQ CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scentiq-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SCENTIQ_ENVIRONMENT: staging
+      DATABASE_URL: postgresql://ci:ci@db.invalid:5432/scentiq_ci?sslmode=require
+      DIRECT_URL: postgresql://ci:ci@db.invalid:5432/scentiq_ci?sslmode=require
+      AUTH_SECRET: ci-auth-8d75272f1d6d4bf3a119842a46964b91
+      AUTH_URL: https://ci.scentiq.invalid
+      NEXT_PUBLIC_SITE_URL: https://ci.scentiq.invalid
+      NEXT_PUBLIC_SUPPORT_EMAIL: qa@scentiq.invalid
+      REVALIDATION_SECRET: ci-revalidate-787b91e389ff43e6a5d12adb9ea2d442
+      STORAGE_PROVIDER: cloudinary
+      CLOUDINARY_CLOUD_NAME: ci-cloud-name
+      CLOUDINARY_API_KEY: ci-api-key
+      CLOUDINARY_API_SECRET: ci-api-private-value
+      MAINTENANCE_MODE: off
+      ORDERING_DISABLED: 'false'
+      DEPLOYMENT_ID: github-${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm prisma:generate
+
+      - name: Validate deployment configuration
+        run: pnpm deploy:check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build production bundle
+        run: pnpm build
+
+      - name: Enforce route performance budgets
+        run: pnpm perf:budget

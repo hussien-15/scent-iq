@@ -1,0 +1,2069 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Every model in this file follows three conventions from the spec:
+//   - UUID primary keys (`@default(uuid())`)
+//   - `createdAt` + `updatedAt` on every table, including join tables
+//   - every relationship is a real foreign key — no bare "loose" ID fields
+//
+// NOTE: the architecture spec calls for "Admin authentication only," which
+// would mean customers don't get accounts at all. Confirmed in chat: keep
+// customer accounts (this file's current model) — Users(Admin) is just the
+// `role` field below, not a separate table.
+model User {
+  id                       String              @id @default(uuid())
+  email                    String              @unique
+  emailVerified            DateTime?
+  passwordHash             String?
+  name                     String?
+  image                    String?
+  role                     Role                @default(CUSTOMER)
+  adminRole                AdminRoleKey?
+  adminStatus              AdminAccountStatus?
+  permissionOverrides      String[]            @default([])
+  deniedPermissions        String[]            @default([])
+  sessionVersion           Int                 @default(0)
+  lastLoginAt              DateTime?
+  passwordChangedAt        DateTime?
+  twoFactorEnabled         Boolean             @default(false)
+  twoFactorSecretEncrypted String?
+  recoveryCodeHashes       String[]            @default([])
+
+  // CRM-style profile fields
+  phone         String?
+  city          String?
+  address       String?
+  // Cached stats — maintained by application logic when an order completes,
+  // not auto-computed by the database. Cheap to read on a customer list
+  // without aggregating the Order table on every request.
+  orderCount    Int     @default(0)
+  totalSpending Decimal @default(0)
+
+  tasteProfile            TasteProfile?
+  orders                  Order[]
+  wishlist                WishlistItem[]
+  interactions            UserInteraction[]
+  reviews                 Review[]                  @relation("ReviewAuthor")
+  reviewReplies           Review[]                  @relation("ReviewAdminReply")
+  reviewVotes             ReviewVote[]
+  reviewReports           ReviewReport[]
+  searchHistory           SearchLog[]
+  favoriteNotes           UserFavoriteNote[]
+  favoriteBrands          UserFavoriteBrand[]
+  activityLogs            ActivityLog[]
+  orderStatusChanges      OrderStatusHistory[]
+  collectionInteractions  CollectionInteraction[]
+  analyticsEvents         AnalyticsEvent[]
+  inventoryMovements      InventoryMovement[]
+  resolvedInventoryAlerts InventoryNotification[]   @relation("InventoryNotificationResolver")
+  accounts                Account[]
+  loginAttempts           LoginAttempt[]
+  passwordResetTokens     AdminPasswordResetToken[]
+  carts                   Cart[]
+  adminRoles              AdminUserRole[]
+  uploadedMedia           Media[]                   @relation("MediaUploader")
+  auditLogs               AuditLog[]
+  qaChecksTested          QaCheck[]                 @relation("QaCheckTester")
+  qaBugsReported          QaBug[]                   @relation("QaBugReporter")
+  qaBugsAssigned          QaBug[]                   @relation("QaBugAssignee")
+  launchApprovals         LaunchApproval[]          @relation("LaunchApprovalAdmin")
+  customerProfile         Customer?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+// Legacy single-role key remains on User for the current Auth.js/RBAC path.
+// The relational AdminRole/AdminUserRole models below add normalized multi-role
+// support without breaking existing admin sessions.
+enum AdminRoleKey {
+  SUPER_ADMIN
+  MANAGER
+  CONTENT_EDITOR
+  ORDER_MANAGER
+  INVENTORY_MANAGER
+  CUSTOMER_SUPPORT
+  SEO_EDITOR
+  VIEWER
+
+  @@map("AdminRole")
+}
+
+enum AdminAccountStatus {
+  ACTIVE
+  DISABLED
+  SUSPENDED
+  PENDING
+}
+
+model AdminRole {
+  id          String                @id @default(uuid())
+  key         AdminRoleKey          @unique
+  name        String
+  description String?
+  permissions AdminRolePermission[]
+  users       AdminUserRole[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@map("AdminRoleDefinition")
+}
+
+model Permission {
+  id          String                @id @default(uuid())
+  key         String                @unique
+  description String?
+  roles       AdminRolePermission[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+}
+
+model AdminRolePermission {
+  id           String     @id @default(uuid())
+  adminRoleId  String
+  adminRole    AdminRole  @relation(fields: [adminRoleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([adminRoleId, permissionId])
+  @@index([permissionId])
+}
+
+model AdminUserRole {
+  id          String    @id @default(uuid())
+  adminUserId String
+  adminUser   User      @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  adminRoleId String
+  adminRole   AdminRole @relation(fields: [adminRoleId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([adminUserId, adminRoleId])
+  @@index([adminRoleId])
+}
+
+// Auth.js adapter support. Sessions remain JWT-based, so no sensitive session
+// token is exposed to the browser or stored in localStorage.
+model Account {
+  id                String   @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model VerificationToken {
+  id         String   @id @default(uuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, token])
+}
+
+// --- Category: broad merchandising classification (Men, Luxury, Niche,
+// Designer...). Deliberately separate from Collection (curated, can span
+// categories) and from Gender/scentFamilies (product attributes, not a
+// browsing taxonomy).
+model Category {
+  id                String         @id @default(uuid())
+  nameEn            String
+  nameAr            String
+  slug              String         @unique
+  descriptionEn     String?
+  descriptionAr     String?
+  seoContentEn      String?
+  seoContentAr      String?
+  metaTitleEn       String?
+  metaTitleAr       String?
+  metaDescriptionEn String?
+  metaDescriptionAr String?
+  keywords          String[]       @default([])
+  ogImage           String?
+  imageId           String?
+  image             Media?         @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
+  parentId          String?
+  parent            Category?      @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Category[]     @relation("CategoryTree")
+  status            CategoryStatus @default(PUBLISHED)
+  sortOrder         Int            @default(0)
+  deletedAt         DateTime?
+  perfumes          Perfume[]
+  faqs              CategoryFaq[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([nameEn])
+  @@index([nameAr])
+  @@index([status, sortOrder])
+  @@index([parentId])
+  @@index([deletedAt])
+}
+
+enum CategoryStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+}
+
+model Brand {
+  id                String              @id @default(uuid())
+  name              String
+  nameAr            String?
+  slug              String              @unique
+  logoUrl           String?
+  bannerUrl         String?
+  logoId            String?
+  logo              Media?              @relation("BrandLogo", fields: [logoId], references: [id], onDelete: SetNull)
+  bannerId          String?
+  banner            Media?              @relation("BrandBanner", fields: [bannerId], references: [id], onDelete: SetNull)
+  ogImage           String?
+  foundedYear       Int?
+  website           String?
+  headquarters      String?
+  industry          String?
+  // Short factual description, distinct from the narrative `story` below —
+  // the spec calls these out as two separate fields.
+  descriptionEn     String?
+  descriptionAr     String?
+  story             String?
+  storyAr           String?
+  // One-line "what makes this house distinct" — storytelling, not a badge.
+  signatureStyleEn  String?
+  signatureStyleAr  String?
+  // Elegant descriptive tags (Luxury, Niche, Modern...) — plain strings like
+  // Perfume's style/mood, not a managed table; nobody needs to rename
+  // "Luxury" from a Perfume Studio settings screen.
+  characteristics   String[]
+  searchAliases     String[]
+  isFeatured        Boolean             @default(false)
+  status            BrandStatus         @default(PUBLISHED)
+  deletedAt         DateTime?
+  originCountry     String?
+  metaTitleEn       String?
+  metaTitleAr       String?
+  metaDescriptionEn String?
+  metaDescriptionAr String?
+  keywords          String[]            @default([])
+  perfumes          Perfume[]
+  favoritedBy       UserFavoriteBrand[]
+  similarTo         BrandSimilarity[]   @relation("BrandSimilarityFrom")
+  similarFrom       BrandSimilarity[]   @relation("BrandSimilarityTo")
+  analyticsEvents   AnalyticsEvent[]
+  searchClicks      SearchLog[]         @relation("SearchClickedBrand")
+  faqs              BrandFaq[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([name])
+  @@index([nameAr])
+  @@index([isFeatured])
+  @@index([status, isFeatured])
+  @@index([deletedAt])
+}
+
+enum BrandStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+}
+
+// --- Configurable brand-to-brand similarity, per the recommendation spec
+// ("brand relationships should be configurable in the admin panel"). A
+// weight rather than a plain boolean so Perfume Studio can eventually tune
+// "how similar" rather than just "similar or not" — the UI to edit these
+// doesn't exist yet, but the data shape doesn't need to change when it does.
+model BrandSimilarity {
+  id             String   @id @default(uuid())
+  brandId        String
+  brand          Brand    @relation("BrandSimilarityFrom", fields: [brandId], references: [id])
+  similarBrandId String
+  similarBrand   Brand    @relation("BrandSimilarityTo", fields: [similarBrandId], references: [id])
+  weight         Float    @default(1.0) // 0-1
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([brandId, similarBrandId])
+}
+
+model Perfume {
+  id          String              @id @default(uuid())
+  // --- Basic information (bilingual; slug stays single/English — see the
+  // README on why Arabic-slug URLs are deferred rather than half-built)
+  nameEn      String
+  nameAr      String
+  slug        String              @unique
+  sku         String              @unique
+  barcode     String?
+  brandId     String
+  brand       Brand               @relation(fields: [brandId], references: [id])
+  categoryId  String?
+  category    Category?           @relation(fields: [categoryId], references: [id])
+  collections CollectionProduct[]
+  status      ProductStatus       @default(DRAFT)
+  publishedAt DateTime?
+  archivedAt  DateTime?
+  deletedAt   DateTime?
+
+  // --- Pricing
+  costPrice       Decimal?
+  price           Decimal // selling price
+  oldPrice        Decimal?
+  discountPercent Int?
+  currency        String   @default("USD")
+
+  // --- Inventory
+  stock                   Int                      @default(0)
+  reservedStock           Int                      @default(0) // held for pending/unpaid orders
+  availableStock          Int                      @default(0) // cached formula: stock - reservedStock
+  lowStockThreshold       Int                      @default(5)
+  availability            Availability             @default(IN_STOCK)
+  inventoryStatus         AvailabilityStatus       @default(OUT_OF_STOCK)
+  inventoryUpdatedAt      DateTime                 @default(now())
+  warehouseLocation       String?
+  variants                ProductVariant[]
+  cartItems               CartItem[]
+  inventoryMovements      InventoryMovement[]
+  inventoryNotifications  InventoryNotification[]
+  stockAlertSubscriptions StockAlertSubscription[]
+
+  // --- Media. Legacy direct media remains supported while ProductMedia adds
+  // reusable ordered galleries and explicit main/video relationships.
+  media        Media[]        @relation("PerfumeLegacyMedia")
+  galleryMedia ProductMedia[]
+  mainImageId  String?
+  mainImage    Media?         @relation("PerfumeMainImage", fields: [mainImageId], references: [id], onDelete: SetNull)
+  videoId      String?
+  video        Media?         @relation("PerfumeVideo", fields: [videoId], references: [id], onDelete: SetNull)
+
+  // --- Description (bilingual)
+  shortDescriptionEn String?
+  shortDescriptionAr String?
+  descriptionEn      String
+  descriptionAr      String
+  // Narrative/emotional copy — character, mood, occasions, lifestyle —
+  // distinct from the factual description above. Optional: not every
+  // product needs marketing copy written for it on day one.
+  storyEn            String?
+  storyAr            String?
+
+  // --- Attributes
+  concentration   String? // EDT, EDP, Parfum
+  gender          Gender
+  bottleSize      String? // "50ml", "100ml"...
+  releaseYear     Int?
+  countryOfOrigin String?
+  scentFamilies   String[] // woody, floral, oriental, fresh...
+  notes           ProductNote[]
+
+  // --- Performance
+  longevity  PerformanceRating?
+  projection PerformanceRating?
+  sillage    PerformanceRating?
+
+  // --- Usage tags (fixed vocabularies — descriptive facets, not a managed
+  // table like Tag/Category below)
+  season   String[] // summer, winter, spring, autumn
+  occasion String[] // office, daily, date, wedding, formal, casual, night, travel
+  style    String[] // elegant, luxury, fresh, sweet, dark, modern, classic
+  mood     String[] // confident, romantic, calm, bold...
+
+  // --- SEO (bilingual)
+  metaTitleEn       String?
+  metaTitleAr       String?
+  metaDescriptionEn String?
+  metaDescriptionAr String?
+  keywords          String[]
+  // Alternate spellings/names a customer might search ("Ana Abiyedh" style
+  // aliases from the spec) — plain strings, not a managed table, since an
+  // alias is just a search-matching string with no other behavior.
+  searchAliases     String[]
+  ogImage           String?
+  canonicalUrl      String?
+
+  // --- Smart tags (Best Seller, Trending...) reuse the Tag model below
+  tags ProductTag[]
+
+  // --- Analytics — denormalized counters, updated by application logic
+  // (e.g. incremented in the recommendation service on each view/purchase)
+  // rather than aggregated from UserInteraction on every page load. The
+  // raw event log still lives in UserInteraction; these are a read-optimized
+  // cache of it.
+  viewCount       Int   @default(0)
+  purchaseCount   Int   @default(0)
+  wishlistCount   Int   @default(0)
+  popularityScore Float @default(0)
+  averageRating   Float @default(0)
+  reviewCount     Int   @default(0)
+
+  reviews                Review[]
+  interactions           UserInteraction[]
+  orderItems             OrderItem[]
+  wishlistedBy           WishlistItem[]
+  collectionInteractions CollectionInteraction[]
+  analyticsEvents        AnalyticsEvent[]
+  searchClicks           SearchLog[]             @relation("SearchClickedPerfume")
+  sourceRecommendations  RecommendationLog[]     @relation("RecommendationSource")
+  recommendedIn          RecommendationLog[]     @relation("RecommendationTarget")
+  faqs                   ProductFaq[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([price])
+  @@index([stock])
+  @@index([inventoryStatus])
+  @@index([inventoryStatus, availableStock])
+  @@index([availability])
+  @@index([barcode])
+  @@index([status])
+  @@index([nameEn])
+  @@index([nameAr])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([publishedAt])
+  @@index([status, availability, createdAt])
+  @@index([brandId, status, availability])
+  @@index([categoryId, status, availability])
+}
+
+enum Gender {
+  MEN
+  WOMEN
+  MASCULINE
+  FEMININE
+  UNISEX
+}
+
+enum Season {
+  SPRING
+  SUMMER
+  AUTUMN
+  WINTER
+  ALL_SEASONS
+}
+
+enum Occasion {
+  DAILY
+  OFFICE
+  FORMAL
+  DATE_NIGHT
+  WEDDING
+  TRAVEL
+  EVENING
+  CASUAL
+}
+
+enum FragranceFamily {
+  WOODY
+  FRESH
+  ORIENTAL
+  AMBER
+  FLORAL
+  SWEET
+  LEATHER
+  OUD
+  VANILLA
+  CITRUS
+  SPICY
+  AQUATIC
+  GREEN
+  FRUITY
+  POWDERY
+  MUSKY
+}
+
+enum Style {
+  ELEGANT
+  LUXURY
+  FRESH
+  SWEET
+  DARK
+  MODERN
+  CLASSIC
+}
+
+enum Mood {
+  CONFIDENT
+  ROMANTIC
+  CALM
+  BOLD
+  ENERGETIC
+  MYSTERIOUS
+}
+
+enum Availability {
+  IN_STOCK
+  OUT_OF_STOCK
+  PREORDER
+  HIDDEN
+  DISCONTINUED
+}
+
+enum AvailabilityStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+  RESERVED
+  HIDDEN
+  DISCONTINUED
+
+  @@map("InventoryStockStatus")
+}
+
+model ProductVariant {
+  id                 String              @id @default(uuid())
+  perfumeId          String
+  perfume            Perfume             @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  name               String
+  bottleSize         String?
+  sku                String              @unique
+  barcode            String?             @unique
+  price              Decimal
+  costPrice          Decimal?
+  stock              Int                 @default(0)
+  reservedStock      Int                 @default(0)
+  availableStock     Int                 @default(0)
+  lowStockThreshold  Int                 @default(5)
+  availability       Availability        @default(IN_STOCK)
+  inventoryStatus    AvailabilityStatus  @default(OUT_OF_STOCK)
+  warehouseLocation  String?
+  images             String[]            @default([])
+  oldPrice           Decimal?
+  currency           String              @default("IQD")
+  imageId            String?
+  image              Media?              @relation("VariantImage", fields: [imageId], references: [id], onDelete: SetNull)
+  orderItems         OrderItem[]
+  cartItems          CartItem[]
+  inventoryMovements InventoryMovement[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([perfumeId, availability])
+  @@index([stock])
+  @@index([inventoryStatus])
+  @@index([inventoryStatus, availableStock])
+}
+
+model InventoryMovement {
+  id               String                @id @default(uuid())
+  perfumeId        String
+  perfume          Perfume               @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  variantId        String?
+  variant          ProductVariant?       @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  orderId          String?
+  order            Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  adminId          String?
+  admin            User?                 @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  previousStock    Int
+  newStock         Int
+  previousReserved Int
+  newReserved      Int
+  quantityChanged  Int
+  movementType     InventoryMovementType
+  reason           String
+  adminNote        String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([perfumeId, createdAt])
+  @@index([variantId, createdAt])
+  @@index([orderId])
+  @@index([movementType, createdAt])
+}
+
+enum InventoryMovementType {
+  INITIAL_STOCK
+  MANUAL_ADDITION
+  MANUAL_REDUCTION
+  ORDER_RESERVED
+  ORDER_RELEASED
+  ORDER_SHIPPED
+  ORDER_CANCELLED
+  ORDER_RETURNED
+  DAMAGED_PRODUCT
+  MISSING_PRODUCT
+  STOCK_CORRECTION
+  RETURN_TO_STOCK
+  DISCONTINUED_PRODUCT
+}
+
+model InventoryNotification {
+  id           String                    @id @default(uuid())
+  perfumeId    String
+  perfume      Perfume                   @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  type         InventoryNotificationType
+  title        String
+  message      String
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?                     @relation("InventoryNotificationResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  @@index([resolvedAt, createdAt])
+  @@index([perfumeId, type])
+}
+
+enum InventoryNotificationType {
+  LOW_STOCK
+  OUT_OF_STOCK
+  HIGH_RESERVED
+  HIGH_VIEWS_NO_STOCK
+  FAST_MOVING_RESTOCK
+}
+
+model StockAlertSubscription {
+  id         String    @id @default(uuid())
+  perfumeId  String
+  perfume    Perfume   @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  phone      String?
+  email      String?
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([perfumeId, phone, email])
+  @@index([perfumeId, notifiedAt])
+}
+
+enum PerformanceRating {
+  LOW
+  MODERATE
+  HIGH
+  VERY_HIGH
+}
+
+enum ProductStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+  DISCONTINUED
+}
+
+// --- Notes: normalized so a note (e.g. "Rose") is one row, reused across
+// every perfume that contains it. `category` is the note's own fragrance
+// family (e.g. "citrus", "woody") — a property of the note itself, distinct
+// from a perfume's overall `scentFamilies`.
+model Note {
+  id                String             @id @default(uuid())
+  nameEn            String             @unique
+  nameAr            String
+  slug              String             @unique
+  descriptionEn     String?
+  descriptionAr     String?
+  category          String?
+  metaTitleEn       String?
+  metaTitleAr       String?
+  metaDescriptionEn String?
+  metaDescriptionAr String?
+  keywords          String[]           @default([])
+  ogImage           String?
+  imageId           String?
+  image             Media?             @relation("NoteImage", fields: [imageId], references: [id], onDelete: SetNull)
+  perfumeNotes      ProductNote[]
+  favoritedBy       UserFavoriteNote[]
+  faqs              NoteFaq[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model ProductFaq {
+  id         String   @id @default(uuid())
+  perfumeId  String
+  perfume    Perfume  @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  questionAr String
+  answerAr   String
+  questionEn String?
+  answerEn   String?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([perfumeId, position])
+}
+
+model BrandFaq {
+  id         String   @id @default(uuid())
+  brandId    String
+  brand      Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  questionAr String
+  answerAr   String
+  questionEn String?
+  answerEn   String?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([brandId, position])
+}
+
+model CategoryFaq {
+  id         String   @id @default(uuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  questionAr String
+  answerAr   String
+  questionEn String?
+  answerEn   String?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([categoryId, position])
+}
+
+model NoteFaq {
+  id         String   @id @default(uuid())
+  noteId     String
+  note       Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  questionAr String
+  answerAr   String
+  questionEn String?
+  answerEn   String?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([noteId, position])
+}
+
+enum NotePosition {
+  TOP
+  HEART
+  BASE
+
+  @@map("NoteTier")
+}
+
+model ProductNote {
+  id        String       @id @default(uuid())
+  perfumeId String
+  perfume   Perfume      @relation(fields: [perfumeId], references: [id])
+  noteId    String
+  note      Note         @relation(fields: [noteId], references: [id])
+  tier      NotePosition
+  strength  Int?
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([perfumeId, noteId, tier])
+  @@index([perfumeId, tier, sortOrder])
+  @@map("PerfumeNote")
+}
+
+// --- Tags: free-form merchandising labels (Bestseller, Limited...),
+// unlimited per product, independent from the Category taxonomy.
+model Tag {
+  id            String       @id @default(uuid())
+  name          String       @unique
+  nameAr        String?
+  nameEn        String?
+  slug          String       @unique
+  descriptionAr String?
+  descriptionEn String?
+  type          String?
+  perfumes      ProductTag[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model ProductTag {
+  id        String   @id @default(uuid())
+  perfumeId String
+  perfume   Perfume  @relation(fields: [perfumeId], references: [id])
+  tagId     String
+  tag       Tag      @relation(fields: [tagId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([perfumeId, tagId])
+  @@map("PerfumeTag")
+}
+
+// --- Collections: curated groupings (Summer Picks, Best Sellers...),
+// separate from Brand and Category — a collection can span both.
+model Collection {
+  id                 String                     @id @default(uuid())
+  name               String
+  nameAr             String?
+  slug               String                     @unique
+  shortDescription   String?
+  shortDescriptionAr String?
+  description        String?
+  descriptionAr      String?
+  buyingGuide        String?
+  buyingGuideAr      String?
+  coverImage         String?
+  coverImageId       String?
+  coverMedia         Media?                     @relation("CollectionCover", fields: [coverImageId], references: [id], onDelete: SetNull)
+  coverAlt           String?
+  coverAltAr         String?
+  type               CollectionType             @default(MANUAL)
+  status             CollectionStatus           @default(DRAFT)
+  rules              Json?
+  manualOrdering     Boolean                    @default(true)
+  featuredOnHomepage Boolean                    @default(false)
+  homepageOrder      Int                        @default(0)
+  sortOrder          Int                        @default(0)
+  scheduledAt        DateTime?
+  publishedAt        DateTime?
+  metaTitleEn        String?
+  metaTitleAr        String?
+  metaDescriptionEn  String?
+  metaDescriptionAr  String?
+  keywords           String[]                   @default([])
+  ogImage            String?
+  perfumes           CollectionProduct[]
+  faqs               CollectionFaq[]
+  relatedFrom        CollectionRelation[]       @relation("CollectionRelationFrom")
+  relatedTo          CollectionRelation[]       @relation("CollectionRelationTo")
+  analytics          CollectionDailyAnalytics[]
+  interactions       CollectionInteraction[]
+  analyticsEvents    AnalyticsEvent[]
+  searchClicks       SearchLog[]                @relation("SearchClickedCollection")
+  deletedAt          DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([status])
+  @@index([name])
+  @@index([nameAr])
+  @@index([status, scheduledAt])
+  @@index([featuredOnHomepage, homepageOrder])
+  @@index([deletedAt])
+}
+
+model CollectionProduct {
+  id               String     @id @default(uuid())
+  perfumeId        String
+  perfume          Perfume    @relation(fields: [perfumeId], references: [id])
+  collectionId     String
+  collection       Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  position         Int        @default(0)
+  pinned           Boolean    @default(false)
+  featuredLabelEn  String?
+  featuredLabelAr  String?
+  featuredReasonEn String?
+  featuredReasonAr String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([perfumeId, collectionId])
+  @@index([collectionId, position])
+  @@map("PerfumeCollection")
+}
+
+enum CollectionType {
+  MANUAL
+  DYNAMIC
+  HYBRID
+}
+
+enum CollectionStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+  SCHEDULED
+}
+
+model CollectionFaq {
+  id           String     @id @default(uuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  questionEn   String
+  questionAr   String?
+  answerEn     String
+  answerAr     String?
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([collectionId, position])
+}
+
+model CollectionRelation {
+  id                  String     @id @default(uuid())
+  collectionId        String
+  collection          Collection @relation("CollectionRelationFrom", fields: [collectionId], references: [id], onDelete: Cascade)
+  relatedCollectionId String
+  relatedCollection   Collection @relation("CollectionRelationTo", fields: [relatedCollectionId], references: [id], onDelete: Cascade)
+  position            Int        @default(0)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@unique([collectionId, relatedCollectionId])
+  @@index([collectionId, position])
+}
+
+model CollectionDailyAnalytics {
+  id            String     @id @default(uuid())
+  collectionId  String
+  collection    Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  date          DateTime   @db.Date
+  views         Int        @default(0)
+  productClicks Int        @default(0)
+  addToCarts    Int        @default(0)
+  purchases     Int        @default(0)
+  revenue       Decimal    @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([collectionId, date])
+  @@index([date])
+}
+
+model CollectionInteraction {
+  id           String                    @id @default(uuid())
+  collectionId String
+  collection   Collection                @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  perfumeId    String?
+  perfume      Perfume?                  @relation(fields: [perfumeId], references: [id], onDelete: SetNull)
+  actionType   CollectionInteractionType
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  @@index([collectionId, actionType, createdAt])
+  @@index([userId, createdAt])
+}
+
+enum CollectionInteractionType {
+  VIEW
+  PRODUCT_CLICK
+  ADD_TO_CART
+  PURCHASE
+}
+
+// --- Media: the Media Library core service. `perfumeId` is optional —
+// banners, brand logos, and category images live in the same library
+// without being forced onto a single product.
+model Media {
+  id                  String            @id @default(uuid())
+  name                String?
+  fileName            String?
+  originalName        String?
+  url                 String
+  thumbnailUrl        String?
+  altText             String?
+  altTextAr           String?
+  altTextEn           String?
+  type                MediaFileType     @default(IMAGE)
+  isPrimary           Boolean           @default(false)
+  sizeBytes           Int?
+  width               Int?
+  height              Int?
+  mimeType            String?
+  folder              String?
+  storagePath         String?
+  contentHash         String?           @unique
+  uploadedById        String?
+  uploadedBy          User?             @relation("MediaUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  perfumeId           String?
+  perfume             Perfume?          @relation("PerfumeLegacyMedia", fields: [perfumeId], references: [id])
+  productMedia        ProductMedia[]
+  mainForPerfumes     Perfume[]         @relation("PerfumeMainImage")
+  videoForPerfumes    Perfume[]         @relation("PerfumeVideo")
+  variantImages       ProductVariant[]  @relation("VariantImage")
+  noteImages          Note[]            @relation("NoteImage")
+  brandLogos          Brand[]           @relation("BrandLogo")
+  brandBanners        Brand[]           @relation("BrandBanner")
+  categoryImages      Category[]        @relation("CategoryImage")
+  collectionCovers    Collection[]      @relation("CollectionCover")
+  deliveryLogos       DeliveryCompany[] @relation("DeliveryCompanyLogo")
+  homepageBackgrounds HomepageSection[] @relation("HomepageSectionBackground")
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([perfumeId, isPrimary])
+  @@index([createdAt])
+  @@index([uploadedById, createdAt])
+}
+
+enum MediaFileType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+  LOGO
+  BANNER
+
+  @@map("MediaType")
+}
+
+model ProductMedia {
+  id        String   @id @default(uuid())
+  productId String
+  product   Perfume  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mediaId   String
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, mediaId])
+  @@index([productId, sortOrder])
+  @@index([mediaId])
+}
+
+// --- Settings: single key/value store. Site name, theme, currency,
+// delivery companies/prices, and SEO defaults are all just keys here —
+// deliberately not one column each, so a new setting never needs a
+// migration.
+model SiteSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  group     String   @default("general")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([group])
+  @@map("Settings")
+}
+
+model HomepageSection {
+  id                String              @id @default(uuid())
+  type              HomepageSectionType
+  titleAr           String?
+  titleEn           String?
+  descriptionAr     String?
+  descriptionEn     String?
+  enabled           Boolean             @default(true)
+  sortOrder         Int                 @default(0)
+  config            Json?
+  backgroundMediaId String?
+  backgroundMedia   Media?              @relation("HomepageSectionBackground", fields: [backgroundMediaId], references: [id], onDelete: SetNull)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
+enum HomepageSectionType {
+  HERO
+  SMART_SEARCH
+  FEATURE_HIGHLIGHTS
+  FEATURED_BRANDS
+  BEST_SELLERS
+  CATEGORIES
+  OCCASIONS
+  FRAGRANCE_FAMILIES
+  COLLECTIONS
+  SMART_RECOMMENDATIONS
+  REVIEWS
+  NEWSLETTER
+  FOOTER
+}
+
+model SeoTemplate {
+  id                    String              @id @default(uuid())
+  pageType              SeoTemplatePageType @unique
+  titleTemplateAr       String
+  titleTemplateEn       String?
+  descriptionTemplateAr String
+  descriptionTemplateEn String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+}
+
+enum SeoTemplatePageType {
+  PRODUCT
+  BRAND
+  COLLECTION
+  CATEGORY
+  NOTE
+}
+
+model SeoRedirect {
+  id         String   @id @default(uuid())
+  oldPath    String   @unique
+  newPath    String
+  statusCode Int      @default(308)
+  isActive   Boolean  @default(true)
+  note       String?
+  hits       Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isActive, oldPath])
+}
+
+// Future-ready editorial core. It is intentionally admin/data-ready before a
+// full blog UI is exposed, so guides can be added without another schema reset.
+model EditorialArticle {
+  id                String          @id @default(uuid())
+  type              EditorialType   @default(PERFUME_GUIDE)
+  status            EditorialStatus @default(DRAFT)
+  slug              String          @unique
+  titleAr           String
+  titleEn           String?
+  excerptAr         String?
+  excerptEn         String?
+  contentAr         String
+  contentEn         String?
+  coverImage        String?
+  coverAltAr        String?
+  coverAltEn        String?
+  metaTitleAr       String?
+  metaTitleEn       String?
+  metaDescriptionAr String?
+  metaDescriptionEn String?
+  keywords          String[]        @default([])
+  publishedAt       DateTime?
+  faqs              EditorialFaq[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([type])
+}
+
+enum EditorialType {
+  PERFUME_GUIDE
+  BUYING_GUIDE
+  COMPARISON
+  SEASONAL_GUIDE
+  BRAND_GUIDE
+  NOTE_GUIDE
+}
+
+enum EditorialStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model EditorialFaq {
+  id         String           @id @default(uuid())
+  articleId  String
+  article    EditorialArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  questionAr String
+  answerAr   String
+  questionEn String?
+  answerEn   String?
+  position   Int              @default(0)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([articleId, position])
+}
+
+// --- Site-wide analytics: a daily snapshot, not a raw event log (that's
+// UserInteraction below). "Best sellers" and "top searches" for a given day
+// are queries against Order/SearchHistory, not columns here — a list-typed
+// column would just be a second, harder-to-query copy of the same data.
+model DailyAnalytics {
+  id              String   @id @default(uuid())
+  date            DateTime @unique
+  visitors        Int      @default(0)
+  productViews    Int      @default(0)
+  orders          Int      @default(0)
+  revenue         Decimal  @default(0)
+  cartAbandonment Int      @default(0)
+  lowStockAlerts  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Privacy-conscious first-party event stream for the storefront funnel.
+// `sessionId` is a random browser-session UUID, not an IP address or a
+// fingerprint. Money remains authoritative on Order; `value` is used only
+// for non-financial signals such as the cart value at the time of an event.
+model AnalyticsEvent {
+  id           String             @id @default(uuid())
+  eventType    AnalyticsEventType
+  sessionId    String?
+  userId       String?
+  user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  customerId   String?
+  customer     Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  perfumeId    String?
+  perfume      Perfume?           @relation(fields: [perfumeId], references: [id], onDelete: SetNull)
+  brandId      String?
+  brand        Brand?             @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  collectionId String?
+  collection   Collection?        @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  orderId      String?
+  order        Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  pathname     String?
+  source       TrafficSource      @default(DIRECT)
+  sourceDetail String?
+  device       DeviceType         @default(UNKNOWN)
+  value        Decimal?
+  metadata     Json?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([eventType, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([perfumeId, eventType, createdAt])
+  @@index([brandId, createdAt])
+  @@index([collectionId, eventType, createdAt])
+  @@index([orderId])
+  @@index([source, createdAt])
+  @@index([device, createdAt])
+}
+
+enum AnalyticsEventType {
+  PAGE_VIEW
+  PRODUCT_VIEW
+  BRAND_VIEW
+  SEARCH
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  CHECKOUT_STARTED
+  ORDER_PLACED
+  ORDER_CREATED
+  ORDER_CONFIRMED
+  ORDER_DELIVERED
+  ORDER_CANCELLED
+  ORDER_RETURNED
+  WISHLIST_ADDED
+  WISHLIST_REMOVED
+  WISHLIST_ADD
+  COLLECTION_VIEW
+  COLLECTION_PRODUCT_CLICK
+  COLLECTION_ADD_TO_CART
+  RECOMMENDATION_IMPRESSION
+  RECOMMENDATION_CLICK
+}
+
+enum TrafficSource {
+  DIRECT
+  GOOGLE
+  INSTAGRAM
+  TIKTOK
+  FACEBOOK
+  WHATSAPP
+  SOCIAL
+  REFERRAL
+  CAMPAIGN
+  UNKNOWN
+}
+
+enum DeviceType {
+  MOBILE
+  DESKTOP
+  TABLET
+  UNKNOWN
+}
+
+// Privacy-conscious real-user monitoring. A sampled page view records only
+// its route, locale, broad device class, and browser-provided Web Vital; no IP,
+// account, cart, or customer data is attached.
+model CoreWebVital {
+  id             String     @id @default(uuid())
+  metricId       String
+  name           String
+  value          Float
+  delta          Float
+  rating         String
+  pathname       String
+  locale         String
+  device         DeviceType @default(UNKNOWN)
+  navigationType String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@unique([metricId, name])
+  @@index([name, createdAt])
+  @@index([pathname, createdAt])
+  @@index([device, createdAt])
+}
+
+// Guest-first CRM identity. Auth.js User remains the optional login identity;
+// Customer safely consolidates checkout history by normalized phone.
+model Customer {
+  id                 String              @id @default(uuid())
+  userId             String?             @unique
+  account            User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name               String
+  phone              String              @unique
+  alternativePhone   String?
+  city               String
+  area               String?
+  address            String
+  nearestLandmark    String?
+  notes              String?
+  orderCount         Int                 @default(0)
+  totalSpending      Decimal             @default(0)
+  orders             Order[]
+  reviews            Review[]
+  reviewVotes        ReviewVote[]
+  wishlistItems      WishlistItem[]
+  searchHistory      SearchLog[]
+  recommendationLogs RecommendationLog[]
+  analyticsEvents    AnalyticsEvent[]
+  carts              Cart[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([phone])
+  @@index([city])
+  @@index([createdAt])
+}
+
+// --- Order: guest-checkout-capable, per "No Account Required." `userId` is
+// optional; contact/address fields are captured directly on the order
+// itself (even for signed-in customers) so an order is self-contained and
+// doesn't depend on the User row later. Payment is Cash on Delivery only
+// in this version — `paymentMethod` stays a plain string rather than an
+// enum so "add another method later" (the spec's own stated direction)
+// doesn't need a schema change.
+model Order {
+  id           String    @id @default(uuid())
+  submissionId String?   @unique
+  orderNumber  String?   @unique
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id])
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  customerName          String
+  phone                 String
+  customerNameSnapshot  String?
+  customerPhoneSnapshot String?
+  alternativePhone      String?
+  city                  String
+  area                  String?
+  address               String
+  landmark              String?
+  deliveryNotes         String? // customer-facing ("leave with neighbor"...)
+  internalNotes         String? // admin-only, never shown to the customer
+
+  items              OrderItem[]
+  status             OrderStatus          @default(PENDING)
+  statusHistory      OrderStatusHistory[]
+  inventoryMovements InventoryMovement[]
+  analyticsEvents    AnalyticsEvent[]
+  reviews            Review[]
+  inventoryState     OrderInventoryState  @default(RESERVED)
+
+  subtotal          Decimal
+  deliveryFee       Decimal
+  discountTotal     Decimal       @default(0)
+  total             Decimal
+  currency          String        @default("IQD")
+  paymentMethod     String        @default("COD")
+  paymentMethodType PaymentMethod @default(CASH_ON_DELIVERY)
+
+  deliveryCompanyId String?
+  deliveryCompany   DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id])
+
+  // Kept for a future online-payment method — unused while COD is the only
+  // option, per the spec, but removing it would just mean re-adding it later.
+  stripeId String?
+
+  // Manual first-version review-request workflow. No message is sent yet;
+  // Studio marks the delivered order as ready and exposes copyable links.
+  reviewRequestMarkedAt DateTime?
+  cancelledAt           DateTime?
+  deliveredAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([orderNumber])
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([city])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                  String          @id @default(uuid())
+  orderId             String
+  order               Order           @relation(fields: [orderId], references: [id])
+  perfumeId           String
+  perfume             Perfume         @relation(fields: [perfumeId], references: [id])
+  variantId           String?
+  variant             ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity            Int
+  price               Decimal // unit price at time of order
+  productNameSnapshot String?
+  brandNameSnapshot   String?
+  skuSnapshot         String?
+  discount            Decimal?        @default(0)
+  subtotal            Decimal // (price - discount) * quantity, stored for historical accuracy
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([orderId])
+  @@index([perfumeId])
+  @@index([variantId])
+}
+
+enum OrderInventoryState {
+  RESERVED
+  DEDUCTED
+  RELEASED
+  RETURNED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+}
+
+// --- Every status change is recorded — "this helps track every order
+// clearly," per the spec. `adminId` is optional because the very first
+// history row (order placed) isn't an admin action.
+model OrderStatusHistory {
+  id             String       @id @default(uuid())
+  orderId        String
+  order          Order        @relation(fields: [orderId], references: [id])
+  previousStatus OrderStatus?
+  newStatus      OrderStatus
+  adminId        String?
+  admin          User?        @relation(fields: [adminId], references: [id])
+  note           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+// --- Local Iraqi delivery companies, admin-manageable per the spec.
+model DeliveryCompany {
+  id              String                @id @default(uuid())
+  name            String
+  logoUrl         String?
+  logoId          String?
+  logo            Media?                @relation("DeliveryCompanyLogo", fields: [logoId], references: [id], onDelete: SetNull)
+  contactNumber   String?
+  supportedCities Json?
+  supportedAreas  Json?
+  baseFee         Decimal?
+  estimatedDays   String? // "2-4 days" — free text, ranges don't fit a single Int cleanly
+  status          DeliveryCompanyStatus @default(ACTIVE)
+  notes           String?
+  fees            DeliveryFee[]
+  orders          Order[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+enum DeliveryCompanyStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+// --- City/area-based pricing per company. `area` is optional so a company
+// can price at the city level only; when both a city-only and a city+area
+// row exist, the more specific (area-matching) row wins — see
+// delivery.service.ts's lookup order rather than a database constraint,
+// since "most specific match wins" isn't expressible as a unique index.
+model DeliveryFee {
+  id                String          @id @default(uuid())
+  deliveryCompanyId String
+  deliveryCompany   DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id])
+  city              String
+  area              String?
+  fee               Decimal
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([deliveryCompanyId, city, area])
+}
+
+model Review {
+  id                     String         @id @default(uuid())
+  userId                 String?
+  user                   User?          @relation("ReviewAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  customerId             String?
+  customer               Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orderId                String?
+  order                  Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  reviewerName           String?
+  reviewerFingerprint    String?
+  perfumeId              String
+  perfume                Perfume        @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  rating                 Int
+  longevityRating        Int?
+  projectionRating       Int?
+  sillageRating          Int?
+  valueRating            Int?
+  smellQualityRating     Int?
+  packagingQualityRating Int?
+  deliveryRating         Int?
+  comment                String?
+  wouldRecommend         Boolean?
+  wouldBuyAgain          Boolean?
+  ageRange               String?
+  reviewerGender         String?
+  usageOccasion          String?
+  seasonUsed             String?
+  verifiedPurchase       Boolean        @default(false)
+  isFeatured             Boolean        @default(false)
+  helpfulYes             Int            @default(0)
+  helpfulNo              Int            @default(0)
+  reportCount            Int            @default(0)
+  adminReply             String?
+  adminReplyById         String?
+  adminReplyBy           User?          @relation("ReviewAdminReply", fields: [adminReplyById], references: [id], onDelete: SetNull)
+  adminRepliedAt         DateTime?
+  approvalStatus         ReviewStatus   @default(PENDING)
+  images                 ReviewImage[]
+  votes                  ReviewVote[]
+  reports                ReviewReport[]
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  @@unique([perfumeId, reviewerFingerprint])
+  @@index([perfumeId])
+  @@index([perfumeId, approvalStatus, createdAt])
+  @@index([userId])
+  @@index([customerId])
+  @@index([orderId])
+  @@index([approvalStatus, createdAt])
+  @@index([verifiedPurchase, helpfulYes])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+  REPORTED
+
+  @@map("ReviewApprovalStatus")
+}
+
+model ReviewImage {
+  id             String                    @id @default(uuid())
+  reviewId       String
+  review         Review                    @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  url            String
+  altText        String?
+  approvalStatus ReviewImageApprovalStatus @default(PENDING)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([reviewId, approvalStatus])
+}
+
+enum ReviewImageApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ReviewVote {
+  id               String          @id @default(uuid())
+  reviewId         String
+  review           Review          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId           String?
+  user             User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  customerId       String?
+  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  voterFingerprint String
+  value            ReviewVoteValue
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([reviewId, voterFingerprint])
+  @@index([reviewId, value])
+  @@index([customerId])
+}
+
+enum ReviewVoteValue {
+  HELPFUL
+  NOT_HELPFUL
+}
+
+model ReviewReport {
+  id                  String   @id @default(uuid())
+  reviewId            String
+  review              Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reporterFingerprint String
+  reason              String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([reviewId, reporterFingerprint])
+  @@index([reviewId])
+}
+
+model WishlistItem {
+  id         String    @id @default(uuid())
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sessionId  String?
+  perfumeId  String
+  perfume    Perfume   @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, perfumeId])
+  @@unique([customerId, perfumeId])
+  @@unique([sessionId, perfumeId])
+  @@index([sessionId, createdAt])
+  @@map("Wishlist")
+}
+
+model Cart {
+  id         String     @id @default(uuid())
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sessionId  String?
+  status     CartStatus @default(ACTIVE)
+  items      CartItem[]
+  expiresAt  DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([userId, status])
+  @@index([customerId, status])
+  @@index([sessionId, status])
+  @@index([expiresAt])
+}
+
+model CartItem {
+  id        String          @id @default(uuid())
+  cartId    String
+  cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  perfumeId String
+  perfume   Perfume         @relation(fields: [perfumeId], references: [id], onDelete: Cascade)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity  Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([cartId, perfumeId, variantId])
+  @@index([perfumeId])
+  @@index([variantId])
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  ABANDONED
+  EXPIRED
+}
+
+model UserInteraction {
+  id         String     @id @default(uuid())
+  // Optional — most storefront views/searches happen before anyone signs
+  // in. Matches SearchHistory's userId below for the same reason.
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id])
+  perfumeId  String
+  perfume    Perfume    @relation(fields: [perfumeId], references: [id])
+  actionType ActionType
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([perfumeId, actionType, createdAt])
+  @@index([userId, actionType, createdAt])
+}
+
+enum ActionType {
+  VIEW
+  WISHLIST
+  PURCHASE
+  SEARCH
+}
+
+// --- Search history: raw log of what customers searched, feeding both the
+// search engine (autocomplete/popular searches) and analytics.
+model SearchLog {
+  id                  String      @id @default(uuid())
+  keyword             String
+  normalizedKeyword   String // Arabic-normalized form — groups spelling variants for analytics
+  userId              String?
+  user                User?       @relation(fields: [userId], references: [id])
+  customerId          String?
+  customer            Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sessionId           String?
+  language            String?
+  resultsCount        Int
+  clickedPerfumeId    String?
+  clickedPerfume      Perfume?    @relation("SearchClickedPerfume", fields: [clickedPerfumeId], references: [id], onDelete: SetNull)
+  clickedBrandId      String?
+  clickedBrand        Brand?      @relation("SearchClickedBrand", fields: [clickedBrandId], references: [id], onDelete: SetNull)
+  clickedCollectionId String?
+  clickedCollection   Collection? @relation("SearchClickedCollection", fields: [clickedCollectionId], references: [id], onDelete: SetNull)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([keyword])
+  @@index([normalizedKeyword])
+  @@index([userId])
+  @@index([customerId])
+  @@index([sessionId, createdAt])
+  @@index([resultsCount, createdAt])
+  @@index([clickedPerfumeId, createdAt])
+  @@index([clickedBrandId, createdAt])
+  @@index([clickedCollectionId, createdAt])
+  @@map("SearchHistory")
+}
+
+model RecommendationLog {
+  id                   String                  @id @default(uuid())
+  sessionId            String?
+  customerId           String?
+  customer             Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sourceProductId      String?
+  sourceProduct        Perfume?                @relation("RecommendationSource", fields: [sourceProductId], references: [id], onDelete: SetNull)
+  recommendedProductId String
+  recommendedProduct   Perfume                 @relation("RecommendationTarget", fields: [recommendedProductId], references: [id], onDelete: Cascade)
+  blockType            RecommendationBlockType
+  action               RecommendationAction
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  @@index([sessionId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([sourceProductId, createdAt])
+  @@index([recommendedProductId, action, createdAt])
+}
+
+enum RecommendationBlockType {
+  SIMILAR_FRAGRANCES
+  BUDGET_ALTERNATIVES
+  LUXURY_ALTERNATIVES
+  SAME_BRAND
+  SEASONAL_PICKS
+  TRENDING
+  EDITOR_PICK
+}
+
+enum RecommendationAction {
+  IMPRESSION
+  CLICK
+  ADD_TO_CART
+  PURCHASE
+}
+
+// --- Recommendation signals for one user. Favorite notes/brands are real
+// foreign-keyed join tables (below) rather than loose ID arrays, so they
+// can't point at a deleted note/brand. Seasons/styles stay plain arrays,
+// like their Perfume-side counterparts — they're descriptive tags, not
+// entities with their own table.
+// --- Activity log: records admin actions for Perfume Studio's activity
+// feed. `affectedType`/`affectedId` are a lightweight polymorphic pointer
+// (Product/Brand/Review/...) rather than a separate FK per entity type —
+// an audit log inherently touches every table, so one flexible pointer
+// beats a dozen nullable foreign keys that are mutually exclusive anyway.
+model ActivityLog {
+  id            String   @id @default(uuid())
+  adminId       String?
+  admin         User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  actorName     String?
+  action        String // "product.created", "review.approved", ...
+  affectedType  String // "Perfume", "Review", "Brand", ...
+  affectedId    String
+  // Denormalized display label, so the feed doesn't need to join back to a
+  // (possibly since-deleted) row just to show what was affected.
+  affectedName  String
+  previousValue Json?
+  newValue      Json?
+  metadata      Json?
+  ipHash        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([adminId])
+  @@index([adminId, createdAt])
+  @@index([action])
+  @@index([affectedType])
+  @@index([createdAt])
+}
+
+// Security-grade immutable audit trail. ActivityLog remains the concise Studio
+// feed; AuditLog is reserved for sensitive before/after records and protected
+// operational review.
+model AuditLog {
+  id            String   @id @default(uuid())
+  adminId       String?
+  admin         User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  action        String
+  entityType    String
+  entityId      String?
+  previousValue Json?
+  newValue      Json?
+  ipHash        String?
+  userAgentHash String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([adminId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+enum QaCheckStatus {
+  NOT_TESTED
+  IN_PROGRESS
+  PASSED
+  FAILED
+  BLOCKED
+  NOT_APPLICABLE
+}
+
+enum QaBugSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum QaBugStatus {
+  OPEN
+  IN_PROGRESS
+  FIXED
+  NEEDS_REVIEW
+  VERIFIED
+  CLOSED
+}
+
+enum LaunchApprovalArea {
+  BUSINESS_OWNER
+  DEVELOPER
+  QA
+  SEO
+  SECURITY
+  CONTENT
+  INVENTORY
+  DELIVERY
+}
+
+model QaCheck {
+  id          String        @id @default(uuid())
+  key         String        @unique
+  category    String
+  title       String
+  description String
+  critical    Boolean       @default(false)
+  weight      Int           @default(1)
+  status      QaCheckStatus @default(NOT_TESTED)
+  environment String?
+  device      String?
+  browser     String?
+  evidence    String?
+  notes       String?
+  testedById  String?
+  testedBy    User?         @relation("QaCheckTester", fields: [testedById], references: [id], onDelete: SetNull)
+  testedAt    DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([category, status])
+  @@index([critical, status])
+  @@index([testedById])
+}
+
+model QaBug {
+  id                String        @id @default(uuid())
+  title             String
+  description       String
+  reproductionSteps String        @db.Text
+  expectedResult    String        @db.Text
+  actualResult      String        @db.Text
+  screenshotUrl     String?
+  severity          QaBugSeverity
+  status            QaBugStatus   @default(OPEN)
+  environment       String
+  device            String?
+  browser           String?
+  route             String?
+  reporterId        String
+  reporter          User          @relation("QaBugReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  assigneeId        String?
+  assignee          User?         @relation("QaBugAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  verifiedAt        DateTime?
+  closedAt          DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([severity, status])
+  @@index([environment, status])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([createdAt])
+}
+
+model LaunchApproval {
+  id           String             @id @default(uuid())
+  area         LaunchApprovalArea @unique
+  approved     Boolean            @default(false)
+  notes        String?
+  approvedById String?
+  approvedBy   User?              @relation("LaunchApprovalAdmin", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([approved, area])
+  @@index([approvedById])
+}
+
+// Failed login records intentionally store hashes rather than raw email or IP
+// addresses. This supports brute-force protection without creating a new
+// customer-data leak.
+model LoginAttempt {
+  id             String   @id @default(uuid())
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  identifierHash String
+  ipHash         String
+  success        Boolean  @default(false)
+  reason         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([identifierHash, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([success, createdAt])
+}
+
+// A database-backed limiter works across server instances, unlike an in-memory
+// Map that resets whenever a serverless function is recycled.
+model RateLimitBucket {
+  id          String   @id @default(uuid())
+  action      String
+  keyHash     String
+  count       Int      @default(0)
+  windowStart DateTime
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([action, keyHash])
+  @@index([expiresAt])
+}
+
+// Future-ready only: no reset email is sent in this version. A future email
+// flow stores only a hash of the one-time token and can revoke it after use.
+model AdminPasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, expiresAt])
+}
+
+// Future webhook receivers can reject replayed event IDs and record signature
+// verification without persisting a sensitive raw payload.
+model WebhookReceipt {
+  id                String        @id @default(uuid())
+  provider          String
+  eventId           String
+  payloadHash       String
+  signatureVerified Boolean       @default(false)
+  status            WebhookStatus @default(RECEIVED)
+  processedAt       DateTime?
+  errorCode         String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([provider, eventId])
+  @@index([status, createdAt])
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  REJECTED
+  FAILED
+}
+
+model TasteProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id])
+  preferredFamilies String[]
+  favoriteSeasons   String[]
+  favoriteStyles    String[]
+  intensity         String? // light, moderate, strong
+  priceRange        String? // budget, mid, luxury
+  occasions         String[] // daily, evening, formal, summer...
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model UserFavoriteNote {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, noteId])
+}
+
+model UserFavoriteBrand {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  brandId   String
+  brand     Brand    @relation(fields: [brandId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, brandId])
+}
