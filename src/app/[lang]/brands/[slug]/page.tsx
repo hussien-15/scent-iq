@@ -6,7 +6,7 @@ import BrandHero from '@/components/BrandHero';
 import Breadcrumb from '@/components/Breadcrumb';
 import ProductCard from '@/components/ProductCard';
 import TagChip from '@/components/TagChip';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { absoluteUrl, breadcrumbJsonLd, buildMetadata, faqJsonLd, serializeJsonLd } from '@/utils/seo';
 import { countryFlag } from '@/lib/country-flags';
@@ -17,11 +17,13 @@ export const revalidate = 900;
 export const dynamicParams = true;
 export async function generateStaticParams() { return []; }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: { slug: string; lang: Locale };
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<{ slug: string; lang: string }>;
+  }
+): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const brand = await prisma.brand.findUnique({ where: { slug: params.slug } });
   if (!brand) return {};
 
@@ -36,11 +38,13 @@ export async function generateMetadata({
   });
 }
 
-export default async function BrandPage({
-  params,
-}: {
-  params: { slug: string; lang: Locale };
-}) {
+export default async function BrandPage(
+  props: {
+    params: Promise<{ slug: string; lang: string }>;
+  }
+) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const lang = params.lang;
 

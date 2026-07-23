@@ -17,7 +17,7 @@ export async function logSearch(keyword: string, resultsCount: number) {
   if (!trimmed) return;
 
   try {
-    await enforceRateLimit('search.log', requestSecurityKey(headers()), 120, 60 * 60 * 1000);
+    await enforceRateLimit('search.log', requestSecurityKey(await headers()), 120, 60 * 60 * 1000);
     const session = await auth();
     await prisma.searchLog.create({
       data: {
@@ -43,7 +43,7 @@ export async function logSearchClick(
   clicked: { perfumeId?: string; brandId?: string }
 ) {
   try {
-    await enforceRateLimit('search.click', requestSecurityKey(headers()), 120, 60 * 60 * 1000);
+    await enforceRateLimit('search.click', requestSecurityKey(await headers()), 120, 60 * 60 * 1000);
     const recent = await prisma.searchLog.findFirst({
       where: { normalizedKeyword: normalizeArabic(keyword) },
       orderBy: { createdAt: 'desc' },

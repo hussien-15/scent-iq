@@ -3,7 +3,7 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import { ArrowUpLeft, ArrowUpRight, LibraryBig } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { countCollectionProducts, publicCollectionWhere } from '@/services/collection.service';
 import { absoluteUrl, buildMetadata, serializeJsonLd } from '@/utils/seo';
@@ -11,7 +11,9 @@ import EmptyState from '@/components/ui/EmptyState';
 
 export const revalidate = 900;
 
-export async function generateMetadata({ params }: { params: { lang: Locale } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const ar = params.lang === 'ar';
   return buildMetadata({
     title: ar ? 'مجموعات عطور مختارة لكل موسم ومناسبة' : 'Curated perfume collections for every season',
@@ -24,7 +26,9 @@ export async function generateMetadata({ params }: { params: { lang: Locale } })
   });
 }
 
-export default async function CollectionsPage({ params }: { params: { lang: Locale } }) {
+export default async function CollectionsPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const collections = await prisma.collection.findMany({
     where: publicCollectionWhere(),

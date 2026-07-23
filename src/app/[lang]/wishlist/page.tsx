@@ -1,9 +1,11 @@
 import WishlistPageClient from '@/components/WishlistPageClient';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 
 export const dynamic = 'force-dynamic';
 
-export default function WishlistPage({ params }: { params: { lang: Locale } }) {
+export default async function WishlistPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
 
   return (

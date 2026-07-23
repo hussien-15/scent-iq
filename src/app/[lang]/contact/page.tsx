@@ -1,7 +1,9 @@
 import InfoPage from '@/components/InfoPage';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 
-export default function ContactPage({ params }: { params: { lang: Locale } }) {
+export default async function ContactPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const channels = [
     process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP

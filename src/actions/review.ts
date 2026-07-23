@@ -95,7 +95,7 @@ export async function submitReview(
   _previousState: SubmitReviewState,
   formData: FormData
 ): Promise<SubmitReviewState> {
-  try { await enforceRateLimit('review.submit', requestSecurityKey(headers()), 5, 60 * 60 * 1000); } catch { return { error: 'server' }; }
+  try { await enforceRateLimit('review.submit', requestSecurityKey(await headers()), 5, 60 * 60 * 1000); } catch { return { error: 'server' }; }
   const session = await auth();
   const parsed = reviewSubmissionSchema.safeParse({
     perfumeId: stringValue(formData, 'perfumeId'),
@@ -323,7 +323,7 @@ export async function voteReview(
   value: 'HELPFUL' | 'NOT_HELPFUL',
   anonymousToken: string
 ) {
-  await enforceRateLimit('review.vote', requestSecurityKey(headers(), anonymousToken.slice(0, 40)), 40, 60 * 60 * 1000);
+  await enforceRateLimit('review.vote', requestSecurityKey(await headers(), anonymousToken.slice(0, 40)), 40, 60 * 60 * 1000);
   const session = await auth();
   const voterFingerprint = session?.user?.id
     ? fingerprint(`user:${session.user.id}`)
@@ -364,7 +364,7 @@ export async function voteReview(
 }
 
 export async function reportReview(reviewId: string, anonymousToken: string, reason?: string) {
-  await enforceRateLimit('review.report', requestSecurityKey(headers(), anonymousToken.slice(0, 40)), 10, 60 * 60 * 1000);
+  await enforceRateLimit('review.report', requestSecurityKey(await headers(), anonymousToken.slice(0, 40)), 10, 60 * 60 * 1000);
   const session = await auth();
   const reporterFingerprint = session?.user?.id
     ? fingerprint(`user:${session.user.id}`)

@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-html-link-for-pages -- The template endpoint returns a downloadable file. */
+
 import { useState, useTransition } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileSearch, Upload } from 'lucide-react';
 import { processProductImport, type ProductImportActionResult } from '@/actions/product-import';

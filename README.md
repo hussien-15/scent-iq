@@ -31,7 +31,7 @@ See [the UI polish system](docs/ui-polish-system.md) for copy, component, access
 
 ## Developer Quick Start
 
-ScentIQ uses **pnpm only** and supports Node.js 20, 22, or 24 LTS. For a new local PostgreSQL database named `scentiq_dev`:
+ScentIQ uses **pnpm only** and requires Node.js 22.13 or newer (Node.js 22 or 24 LTS). For a new local PostgreSQL database named `scentiq_dev`:
 
 ```bash
 pnpm install
@@ -553,6 +553,6 @@ must never be sent in chat or committed.
 
 ## Tech stack recap
 
-Next.js 14 (App Router) · TypeScript · Tailwind CSS · Prisma · PostgreSQL ·
+Next.js 15 (App Router) · TypeScript · Tailwind CSS · Prisma · PostgreSQL ·
 Auth.js (NextAuth v5) · Zustand · React Hook Form · Zod · Recharts ·
 Lucide React · Framer Motion · pnpm

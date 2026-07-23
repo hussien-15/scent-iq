@@ -17,11 +17,12 @@ function badge(value: string) {
   return 'border-white/10 text-smoke';
 }
 
-export default async function QaPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
+export default async function QaPage(
+  props: {
+    searchParams: Promise<Record<string, string | string[] | undefined>>;
+  }
+) {
+  const searchParams = await props.searchParams;
   await requirePermission('qa.view');
   const [report, admins] = await Promise.all([
     getLaunchReadiness(),

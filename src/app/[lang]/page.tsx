@@ -14,7 +14,7 @@ import WhyScentIQ from '@/components/home/WhyScentIQ';
 import RecommendationsPreview from '@/components/home/RecommendationsPreview';
 import ReviewsSlider from '@/components/home/ReviewsSlider';
 import Newsletter from '@/components/home/Newsletter';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { localized } from '@/utils/localized';
 import { getCurrentSeason, getSeasonalPicks } from '@/services/discovery.service';
 import { publicCollectionWhere } from '@/services/collection.service';
@@ -25,7 +25,9 @@ import { buttonStyles } from '@/components/ui/Button';
 
 export const revalidate = 900;
 
-export async function generateMetadata({ params }: { params: { lang: Locale } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const rows = await prisma.siteSetting.findMany({ where: { key: { startsWith: 'seo.home.' } } });
   const settings = new Map(
     rows.map((row) => [row.key, typeof row.value === 'string' ? row.value : JSON.stringify(row.value)])
@@ -53,7 +55,9 @@ export async function generateMetadata({ params }: { params: { lang: Locale } })
   });
 }
 
-export default async function HomePage({ params }: { params: { lang: Locale } }) {
+export default async function HomePage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const lang = params.lang;
 

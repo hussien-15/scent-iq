@@ -7,7 +7,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import { SearchX } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import SearchBar from '@/components/home/SearchBar';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import { tagLabel } from '@/lib/tag-labels';
 import { searchScore } from '@/utils/search-match';
 import type { ProductCardData } from '@/types';
@@ -30,13 +30,15 @@ type ShopSearchParams = {
   page?: string;
 };
 
-export async function generateMetadata({
-  params,
-  searchParams,
-}: {
-  params: { lang: Locale };
-  searchParams: ShopSearchParams;
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<{ lang: string }>;
+    searchParams: Promise<ShopSearchParams>;
+  }
+): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const ar = params.lang === 'ar';
   const filtered = Object.values(searchParams).some(Boolean);
   return buildMetadata({
@@ -53,13 +55,15 @@ export async function generateMetadata({
   });
 }
 
-export default async function ShopPage({
-  params,
-  searchParams,
-}: {
-  params: { lang: Locale };
-  searchParams: ShopSearchParams;
-}) {
+export default async function ShopPage(
+  props: {
+    params: Promise<{ lang: string }>;
+    searchParams: Promise<ShopSearchParams>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const rawParams = await props.params;
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const {
     family: activeFamily,

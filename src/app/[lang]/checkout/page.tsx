@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,7 +9,7 @@ import { useCartStore, cartSubtotal } from '@/lib/store/cart-store';
 import { formatPrice } from '@/utils/format-price';
 import { localized } from '@/utils/localized';
 import { createOrder } from '@/actions/order';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import TrustBadges from '@/components/TrustBadges';
 import { getAnalyticsSessionId, trackAnalyticsEvent } from '@/lib/analytics-client';
 import EmptyState from '@/components/ui/EmptyState';
@@ -35,7 +35,9 @@ type DeliveryOption = { id: string; name: string; estimatedDays: string | null; 
 
 const CITIES = ['Baghdad', 'Basra', 'Erbil', 'Najaf', 'Mosul', 'Sulaymaniyah'];
 
-export default function CheckoutPage({ params }: { params: { lang: Locale } }) {
+export default function CheckoutPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = use(props.params);
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const router = useRouter();
   const { items } = useCartStore();

@@ -1,17 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { Minus, Plus, ShoppingBag, X } from 'lucide-react';
 import { useCartStore, cartSubtotal } from '@/lib/store/cart-store';
 import { formatPrice } from '@/utils/format-price';
 import { localized } from '@/utils/localized';
 import ScentBottle from '@/components/ScentBottle';
-import { getDictionary, type Locale } from '@/lib/i18n';
+import { getDictionary, resolveLocale } from '@/lib/i18n';
 import EmptyState from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/ToastProvider';
 
-export default function CartPage({ params }: { params: { lang: Locale } }) {
+export default function CartPage(props: { params: Promise<{ lang: string }> }) {
+  const rawParams = use(props.params);
+  const params = { ...rawParams, lang: resolveLocale(rawParams.lang) };
   const dict = getDictionary(params.lang);
   const { items, removeItem, updateQuantity } = useCartStore();
   const [mounted, setMounted] = useState(false);

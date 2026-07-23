@@ -11,7 +11,7 @@ The commands do not print passwords, tokens or database credentials.
 
 ## `node` is not recognized
 
-Install a supported Node.js LTS release, close every terminal, reopen VS Code, and run `node -v`. ScentIQ supports Node 20, 22, or 24 LTS.
+Install a supported Node.js LTS release, close every terminal, reopen VS Code, and run `node -v`. ScentIQ requires Node.js 22.13 or newer (Node.js 22 or 24 LTS).
 
 ## `pnpm` is not recognized
 

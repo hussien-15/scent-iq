@@ -300,7 +300,7 @@ export async function resolveInventoryNotification(notificationId: string) {
 export type StockAlertState = { success?: boolean; error?: string };
 
 export async function requestStockAlert(_state: StockAlertState, formData: FormData): Promise<StockAlertState> {
-  try { await enforceRateLimit('stock-alert.request', requestSecurityKey(headers()), 8, 60 * 60 * 1000); } catch { return { error: 'validation' }; }
+  try { await enforceRateLimit('stock-alert.request', requestSecurityKey(await headers()), 8, 60 * 60 * 1000); } catch { return { error: 'validation' }; }
   const perfumeId = String(formData.get('perfumeId') ?? '');
   const phone = String(formData.get('phone') ?? '').trim();
   const email = String(formData.get('email') ?? '').trim();

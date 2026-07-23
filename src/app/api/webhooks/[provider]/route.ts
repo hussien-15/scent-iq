@@ -8,9 +8,9 @@ export const runtime = 'nodejs';
 
 const providerSchema = z.enum(WEBHOOK_PROVIDERS);
 
-export async function POST(request: NextRequest, context: { params: { provider: string } }) {
+export async function POST(request: NextRequest, context: { params: Promise<{ provider: string }> }) {
   try {
-    const provider = providerSchema.parse(context.params.provider);
+    const provider = providerSchema.parse((await context.params).provider);
     const contentLength = Number(request.headers.get('content-length') ?? 0);
     if (contentLength > 1024 * 1024) throw new ValidationError('Webhook payload is too large.');
     const eventId = request.headers.get('x-scentiq-event-id') ?? '';

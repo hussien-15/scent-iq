@@ -17,7 +17,7 @@ export type CreateOrderResult = CheckoutResult | { success: false; error: 'valid
  */
 export async function createOrder(input: unknown): Promise<CreateOrderResult> {
   try {
-    await enforceRateLimit('checkout.create', requestSecurityKey(headers()), 5, 10 * 60 * 1000);
+    await enforceRateLimit('checkout.create', requestSecurityKey(await headers()), 5, 10 * 60 * 1000);
   } catch {
     return { success: false, error: 'server_error' };
   }

@@ -219,7 +219,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-export default async function StudioSeoPage({ searchParams }: { searchParams: { type?: string; q?: string } }) {
+export default async function StudioSeoPage(props: { searchParams: Promise<{ type?: string; q?: string }> }) {
+  const searchParams = await props.searchParams;
   const active = TABS.some(([key]) => key === searchParams.type) ? searchParams.type! : 'products';
   const q = searchParams.q?.trim().toLowerCase() ?? '';
   const [products, brands, collections, categories, notes, templates, settings, redirects, organicPages, topSearches] =

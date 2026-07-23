@@ -6,7 +6,7 @@ This is the primary ScentIQ setup guide. It assumes no previous Next.js or Prism
 
 Install:
 
-- Node.js 20, 22, or 24 LTS
+- Node.js 22.13 or newer (Node.js 22 or 24 LTS)
 - Git
 - VS Code
 - pnpm through Corepack

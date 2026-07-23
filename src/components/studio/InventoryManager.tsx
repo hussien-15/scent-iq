@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-html-link-for-pages -- File export endpoints require native browser navigation. */
+
 import Image from 'next/image';
 import { FormEvent, useState, useTransition } from 'react';
 import { useFormState, useFormStatus } from 'react-dom';

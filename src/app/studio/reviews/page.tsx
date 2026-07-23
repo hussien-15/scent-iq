@@ -16,11 +16,12 @@ function average(values: (number | null)[]) {
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
 }
 
-export default async function StudioReviewsPage({
-  searchParams,
-}: {
-  searchParams: { q?: string; product?: string; rating?: string; status?: string; page?: string };
-}) {
+export default async function StudioReviewsPage(
+  props: {
+    searchParams: Promise<{ q?: string; product?: string; rating?: string; status?: string; page?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const status = statuses.includes(searchParams.status as (typeof statuses)[number])
     ? (searchParams.status as (typeof statuses)[number])
     : undefined;
